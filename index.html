@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SYNCHRO - Music Sync</title>
+    <title>SYNCHRO - High Sensitivity</title>
     <style>
         body, html {
             margin: 0;
@@ -36,7 +36,7 @@
 
     <div id="overlay">
         <h1 style="margin-top:0;">TAP TO SYNC</h1>
-        <p>Turn brightness to 100%.</p>
+        <p>High Sensitivity Mode</p>
     </div>
 
     <script>
@@ -45,8 +45,8 @@
         
         let audioContext, analyser, dataArray;
         
-        const bassHistory = [];
-        const historySize = 20; 
+        const energyHistory = [];
+        const historySize = 30; // Slightly larger history for a smoother rolling average
         let currentBrightness = 0;
 
         overlay.addEventListener('click', async () => {
@@ -64,9 +64,7 @@
                 const source = audioContext.createMediaStreamSource(stream);
                 analyser = audioContext.createAnalyser();
                 
-                // 1. HIGHER RESOLUTION: Narrower frequency buckets
                 analyser.fftSize = 1024; 
-                // 2. ZERO SMOOTHING: Reacts instantly to sharp drum hits, not sustained talking
                 analyser.smoothingTimeConstant = 0.1; 
                 
                 source.connect(analyser);
@@ -80,41 +78,45 @@
             }
         });
 
-        function getBassEnergy() {
+        function getAudioEnergy() {
             analyser.getByteFrequencyData(dataArray);
             let sum = 0;
             
-            // 3. PRECISION TARGETING:
-            // With fftSize 1024, each bin is roughly 43Hz wide.
-            // Bin 1: 43Hz - 86Hz (Sub-bass / Deep kick)
-            // Bin 2: 86Hz - 129Hz (Punchy kick)
-            // Bin 3: 129Hz - 172Hz (Upper bass)
-            // By only scanning bins 1, 2, and 3, we completely ignore the 200Hz+ vocal range.
-            for(let i = 1; i <= 3; i++) {
+            // 1. WIDENED SPECTRUM: 
+            // We now loop through the first 200 bins instead of just 3.
+            // This captures everything from 40Hz (deep bass) up to ~8.6kHz (cymbals, high synths).
+            const maxBin = 200;
+            for(let i = 1; i <= maxBin; i++) {
                 sum += dataArray[i];
             }
-            return sum / 3;
+            return sum / maxBin;
         }
 
         function draw() {
             requestAnimationFrame(draw);
             
-            const bass = getBassEnergy();
+            const energy = getAudioEnergy();
             
-            bassHistory.push(bass);
-            if (bassHistory.length > historySize) {
-                bassHistory.shift();
+            energyHistory.push(energy);
+            if (energyHistory.length > historySize) {
+                energyHistory.shift();
             }
-            const avgBass = bassHistory.reduce((a, b) => a + b, 0) / bassHistory.length;
+            const avgEnergy = energyHistory.reduce((a, b) => a + b, 0) / energyHistory.length;
 
-            // Trigger the light if the bass spikes sharply above the average background noise
-            if (bass > avgBass * 1.25 && bass > 60) {
-                currentBrightness = 100; 
+            // 2. INCREASED SENSITIVITY:
+            // Multiplier lowered from 1.25 to 1.05 (reacts to tiny changes in volume).
+            // Hard threshold lowered from 60 to 15 (picks up much quieter sounds).
+            if (energy > avgEnergy * 1.05 && energy > 15) {
+                // Brightness now scales based on how loud the sound is, capping at 100
+                currentBrightness = Math.min(100, energy * 2.5); 
             }
 
-            currentBrightness = Math.max(0, currentBrightness - 5); // Fades out smoothly
+            // 3. SLOWER FADE:
+            // Fades out slower (subtracts 2 instead of 5) so the screen stays lit up longer 
+            // during continuous sections of music like guitar solos or vocal runs.
+            currentBrightness = Math.max(0, currentBrightness - 2); 
 
-            // Global time-synced color
+            // Global time-synced color remains the same
             const hue = Math.floor(Date.now() / 100) % 360;
             const lightness = currentBrightness / 2;
             
