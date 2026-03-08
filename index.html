@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Aditya Rao - Concert Sync</title>
+    <title>Aditya Rao - SYNCHRO - Live</title>
     <style>
         body, html {
             margin: 0;
@@ -16,17 +16,18 @@
             justify-content: center;
             align-items: center;
             font-family: sans-serif;
-            transition: background-color 0.1s ease;
+            /* Removed the CSS transition to allow for instant, punchy strobe effects */
         }
 
         #overlay {
             color: white;
             text-align: center;
             z-index: 10;
-            background: rgba(0,0,0,0.5);
-            padding: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 30px;
             border-radius: 15px;
             cursor: pointer;
+            border: 2px solid #333;
         }
 
         .hidden { display: none !important; }
@@ -35,79 +36,88 @@
 <body>
 
     <div id="overlay">
-        <h1>TAP TO JOIN SHOW</h1>
-        <p>Ensure your volume is up and mic is allowed.</p>
+        <h1 style="margin-top:0;">TAP TO SYNC</h1>
+        <p>Turn brightness to 100%.</p>
     </div>
 
     <script>
         const overlay = document.getElementById('overlay');
         const body = document.body;
         
-        let audioContext;
-        let analyser;
-        let dataArray;
+        let audioContext, analyser, dataArray;
+        
+        // Beat detection variables
+        const bassHistory = [];
+        const historySize = 20; 
+        let currentBrightness = 0;
 
         overlay.addEventListener('click', async () => {
             try {
-                // Initialize Audio Context
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // CRITICAL FIX: Turn off audio processing so the mic hears raw concert dynamics
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: false,
+                        autoGainControl: false,
+                        noiseSuppression: false
+                    } 
+                });
+                
                 const source = audioContext.createMediaStreamSource(stream);
-                
                 analyser = audioContext.createAnalyser();
-                analyser.fftSize = 2048; // Resolution of frequency
                 
+                // Lower FFT size = faster response time for beat detection
+                analyser.fftSize = 256; 
                 source.connect(analyser);
                 
-                const bufferLength = analyser.frequencyBinCount;
-                dataArray = new Uint8Array(bufferLength);
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
                 
                 overlay.classList.add('hidden');
                 draw();
             } catch (err) {
-                alert("Microphone access is required for the light show.");
+                alert("Microphone access is required.");
                 console.error(err);
             }
         });
 
-        function getPeakFrequency() {
+        function getBassEnergy() {
             analyser.getByteFrequencyData(dataArray);
-            
-            let maxVal = 0;
-            let maxIndex = 0;
-            
-            // We focus on frequencies between index 5 and 100 
-            // This ignores sub-bass rumble and high-pitched hiss
-            for (let i = 5; i < 100; i++) {
-                if (dataArray[i] > maxVal) {
-                    maxVal = dataArray[i];
-                    maxIndex = i;
-                }
+            let sum = 0;
+            // Only look at the first 5 bins (roughly 0Hz to 400Hz) for the "kick"
+            for(let i = 0; i < 5; i++) {
+                sum += dataArray[i];
             }
-            
-            // Return object with frequency magnitude and index
-            return { volume: maxVal, index: maxIndex };
+            return sum / 5;
         }
 
         function draw() {
             requestAnimationFrame(draw);
             
-            const { volume, index } = getPeakFrequency();
+            const bass = getBassEnergy();
             
-            // Threshold: Only change color if sound is loud enough
-            if (volume > 50) {
-                // Map the frequency index (roughly 50Hz to 2000Hz) to a Hue (0-360)
-                // index 5 is low bass, index 100 is mid-highs
-                const hue = (index * 3.6) % 360; 
-                
-                // Lightness is driven by volume so it "pulses"
-                const lightness = Math.min(volume / 2, 50); 
-                
-                body.style.backgroundColor = `hsl(${hue}, 100%, ${lightness}%)`;
-            } else {
-                // Fade to black if quiet
-                body.style.backgroundColor = 'black';
+            // 1. Maintain a rolling average of the background noise
+            bassHistory.push(bass);
+            if (bassHistory.length > historySize) {
+                bassHistory.shift();
             }
+            const avgBass = bassHistory.reduce((a, b) => a + b, 0) / bassHistory.length;
+
+            // 2. BEAT DETECTION: If current bass is a sudden spike above the average
+            if (bass > avgBass * 1.25 && bass > 100) {
+                currentBrightness = 100; // Trigger full brightness
+            }
+
+            // 3. Smooth fade out (creates a pulsating effect rather than flickering)
+            currentBrightness = Math.max(0, currentBrightness - 4);
+
+            // 4. THE SYNC HACK: Use global time to determine the color.
+            // Division by 100 means the color wheel completes a full rotation every 36 seconds.
+            const hue = Math.floor(Date.now() / 100) % 360;
+
+            // 5. Apply the color (Lightness scales from 0% [black] to 50% [pure vivid color])
+            const lightness = currentBrightness / 2;
+            body.style.backgroundColor = `hsl(${hue}, 100%, ${lightness}%)`;
         }
     </script>
 </body>
