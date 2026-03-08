@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Aditya Rao - SYNCHRO - Live</title>
+    <title>SYNCHRO - Music Sync</title>
     <style>
         body, html {
             margin: 0;
@@ -16,7 +16,6 @@
             justify-content: center;
             align-items: center;
             font-family: sans-serif;
-            /* Removed the CSS transition to allow for instant, punchy strobe effects */
         }
 
         #overlay {
@@ -46,7 +45,6 @@
         
         let audioContext, analyser, dataArray;
         
-        // Beat detection variables
         const bassHistory = [];
         const historySize = 20; 
         let currentBrightness = 0;
@@ -55,7 +53,6 @@
             try {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 
-                // CRITICAL FIX: Turn off audio processing so the mic hears raw concert dynamics
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     audio: {
                         echoCancellation: false,
@@ -67,10 +64,12 @@
                 const source = audioContext.createMediaStreamSource(stream);
                 analyser = audioContext.createAnalyser();
                 
-                // Lower FFT size = faster response time for beat detection
-                analyser.fftSize = 256; 
-                source.connect(analyser);
+                // 1. HIGHER RESOLUTION: Narrower frequency buckets
+                analyser.fftSize = 1024; 
+                // 2. ZERO SMOOTHING: Reacts instantly to sharp drum hits, not sustained talking
+                analyser.smoothingTimeConstant = 0.1; 
                 
+                source.connect(analyser);
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
                 
                 overlay.classList.add('hidden');
@@ -84,11 +83,17 @@
         function getBassEnergy() {
             analyser.getByteFrequencyData(dataArray);
             let sum = 0;
-            // Only look at the first 5 bins (roughly 0Hz to 400Hz) for the "kick"
-            for(let i = 0; i < 5; i++) {
+            
+            // 3. PRECISION TARGETING:
+            // With fftSize 1024, each bin is roughly 43Hz wide.
+            // Bin 1: 43Hz - 86Hz (Sub-bass / Deep kick)
+            // Bin 2: 86Hz - 129Hz (Punchy kick)
+            // Bin 3: 129Hz - 172Hz (Upper bass)
+            // By only scanning bins 1, 2, and 3, we completely ignore the 200Hz+ vocal range.
+            for(let i = 1; i <= 3; i++) {
                 sum += dataArray[i];
             }
-            return sum / 5;
+            return sum / 3;
         }
 
         function draw() {
@@ -96,27 +101,23 @@
             
             const bass = getBassEnergy();
             
-            // 1. Maintain a rolling average of the background noise
             bassHistory.push(bass);
             if (bassHistory.length > historySize) {
                 bassHistory.shift();
             }
             const avgBass = bassHistory.reduce((a, b) => a + b, 0) / bassHistory.length;
 
-            // 2. BEAT DETECTION: If current bass is a sudden spike above the average
-            if (bass > avgBass * 1.25 && bass > 100) {
-                currentBrightness = 100; // Trigger full brightness
+            // Trigger the light if the bass spikes sharply above the average background noise
+            if (bass > avgBass * 1.25 && bass > 60) {
+                currentBrightness = 100; 
             }
 
-            // 3. Smooth fade out (creates a pulsating effect rather than flickering)
-            currentBrightness = Math.max(0, currentBrightness - 4);
+            currentBrightness = Math.max(0, currentBrightness - 5); // Fades out smoothly
 
-            // 4. THE SYNC HACK: Use global time to determine the color.
-            // Division by 100 means the color wheel completes a full rotation every 36 seconds.
+            // Global time-synced color
             const hue = Math.floor(Date.now() / 100) % 360;
-
-            // 5. Apply the color (Lightness scales from 0% [black] to 50% [pure vivid color])
             const lightness = currentBrightness / 2;
+            
             body.style.backgroundColor = `hsl(${hue}, 100%, ${lightness}%)`;
         }
     </script>
