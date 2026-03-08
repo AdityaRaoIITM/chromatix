@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Aditya Rao - Concert Sync</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: sans-serif;
+            transition: background-color 0.1s ease;
+        }
+
+        #overlay {
+            color: white;
+            text-align: center;
+            z-index: 10;
+            background: rgba(0,0,0,0.5);
+            padding: 20px;
+            border-radius: 15px;
+            cursor: pointer;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div id="overlay">
+        <h1>TAP TO JOIN SHOW</h1>
+        <p>Ensure your volume is up and mic is allowed.</p>
+    </div>
+
+    <script>
+        const overlay = document.getElementById('overlay');
+        const body = document.body;
+        
+        let audioContext;
+        let analyser;
+        let dataArray;
+
+        overlay.addEventListener('click', async () => {
+            try {
+                // Initialize Audio Context
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const source = audioContext.createMediaStreamSource(stream);
+                
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048; // Resolution of frequency
+                
+                source.connect(analyser);
+                
+                const bufferLength = analyser.frequencyBinCount;
+                dataArray = new Uint8Array(bufferLength);
+                
+                overlay.classList.add('hidden');
+                draw();
+            } catch (err) {
+                alert("Microphone access is required for the light show.");
+                console.error(err);
+            }
+        });
+
+        function getPeakFrequency() {
+            analyser.getByteFrequencyData(dataArray);
+            
+            let maxVal = 0;
+            let maxIndex = 0;
+            
+            // We focus on frequencies between index 5 and 100 
+            // This ignores sub-bass rumble and high-pitched hiss
+            for (let i = 5; i < 100; i++) {
+                if (dataArray[i] > maxVal) {
+                    maxVal = dataArray[i];
+                    maxIndex = i;
+                }
+            }
+            
+            // Return object with frequency magnitude and index
+            return { volume: maxVal, index: maxIndex };
+        }
+
+        function draw() {
+            requestAnimationFrame(draw);
+            
+            const { volume, index } = getPeakFrequency();
+            
+            // Threshold: Only change color if sound is loud enough
+            if (volume > 50) {
+                // Map the frequency index (roughly 50Hz to 2000Hz) to a Hue (0-360)
+                // index 5 is low bass, index 100 is mid-highs
+                const hue = (index * 3.6) % 360; 
+                
+                // Lightness is driven by volume so it "pulses"
+                const lightness = Math.min(volume / 2, 50); 
+                
+                body.style.backgroundColor = `hsl(${hue}, 100%, ${lightness}%)`;
+            } else {
+                // Fade to black if quiet
+                body.style.backgroundColor = 'black';
+            }
+        }
+    </script>
+</body>
+</html>
